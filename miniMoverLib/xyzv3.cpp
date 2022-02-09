@@ -38,7 +38,7 @@
 // uncomment to force wifi connections to close between messages
 //#define CLOSE_ON_WIFI
 
-const char *g_ver = "v0.9.6 Beta";
+const char *g_ver = "v0.9.6 Mix2";
 
 const XYZPrinterInfo XYZV3::m_infoArray[m_infoArrayLen] = { //  File parameters        Machine capabilities
 	//   modelNum,       fileNum, serialNum,          webNum,    IsV5, IsZip, comV3,   tmenu, hbed,  dExtr, wifi,  scan, laser,    len, wid, hgt,   screenName
@@ -569,7 +569,7 @@ void XYZV3::parseStatusSubstring(const char *str)
 				break;
 
 			case 'p': // printer model number, p:mn - model_num
-				//p:dv1MX0A000
+				//p:dv2JW0A000
 				sscanf(str, "p:%s", m_status.pMachineModelNumber);
 				m_info = XYZV3::modelToInfo(m_status.pMachineModelNumber);
 				break;
@@ -2984,7 +2984,7 @@ bool XYZV3::encryptFile(const char *inPath, const char *outPath, int infoIdx)
 		info = XYZV3::indexToInfo(infoIdx);
 #ifdef _DEBUG
 	if(!info)
-		info = XYZV3::modelToInfo("dv1MX0A000");		// miniMaker
+		info = XYZV3::modelToInfo("dv2JW0A000");		// da Vinci Jr. 2.0 Mix
 		//info = XYZV3::modelToInfo("dvF100B000");		// 1.0
 #endif
 
@@ -3047,6 +3047,7 @@ bool XYZV3::encryptFile(const char *inPath, const char *outPath, int infoIdx)
 
 						if(encryptHeader(processedBuf, processHeaderLen, fileIsV5, &headerBuf, &headerLen))
 						{
+
 							char *bodyBuf = NULL;
 							int bodyLen = 0;
 
@@ -3938,7 +3939,6 @@ int XYZV3::pkcs7unpad(char *buf, int len)
 int XYZV3::pkcs7pad(char *buf, int len)
 {
 	//debugPrint(DBG_VERBOSE, "XYZV3::pkcs7pad()");
-
 	if(buf && len > 0)
 	{
 		// force padding even if we are on a byte boundary
@@ -4129,7 +4129,7 @@ bool XYZV3::processGCode(const char *gcode, const int gcodeLen, const char *file
 				// and capture info if possible
 				// ; filename = temp.3w
 				// ; print_time = {estimated time in seconds}
-				// ; machine = dv1MX0A000 // change to match current printer
+				// ; machine = dv2JW0A000 // change to match current printer
 				// ; facets = {totalFacets}
 				// ; total_layers = {totalLayers}
 				// ; version = 18020109
@@ -4182,10 +4182,11 @@ bool XYZV3::processGCode(const char *gcode, const int gcodeLen, const char *file
 			tcode = readLineFromBuf(tcode, lineBuf, lineLen);
 		}
 
-		// create working buffer with extra room
-		int bBufMaxLen = gcodeLen + 1000;
+		// create working buffer with extra room (for T0 lines and header)
+		int bBufMaxLen = ( 2 * gcodeLen ) + 1000;
 		int bbufOffset = 0;
 		char * bBuf = new char[bBufMaxLen];
+		char t0[1024] = "T0 P1.000";
 		if(bBuf)
 		{
 			// make a fake header to keep printer happy
@@ -4267,16 +4268,29 @@ bool XYZV3::processGCode(const char *gcode, const int gcodeLen, const char *file
 					if(wasHeader)
 						headerEnd = bbufOffset;
 
-					// convert G0 to G1
+					// save T0 lines
+					if(strstr(lineBuf, "T0 P"))
+						strcpy(t0, lineBuf);
+
+					// convert G0 into G1 + T0
 					char *s = strstr(lineBuf, "G0");
 					if(!s)
 						s = strstr(lineBuf, "g0");
 					if(s)
+					{
+						// transform G0 into G1 and copy it to file
 						s[1] = '1';
-
-					// copy to file
-					strcpy(bBuf + bbufOffset, lineBuf);
-					bbufOffset += strlen(lineBuf);
+						strcpy(bBuf + bbufOffset, lineBuf);
+						bbufOffset += strlen(lineBuf);
+						// also add a line T0 into the file
+						strcpy(bBuf + bbufOffset, t0);
+						bbufOffset += strlen(t0);
+					} else {
+						// other than G0 lines
+						// copy to file
+						strcpy(bBuf + bbufOffset, lineBuf);
+						bbufOffset += strlen(lineBuf);
+					}
 				}
 
 				tcode = readLineFromBuf(tcode, lineBuf, lineLen);
@@ -4314,7 +4328,7 @@ bool XYZV3::encryptHeader(const char *gcode, int gcodeLen, bool fileIsV5, char *
 		// padded out to 16 byte boundary
 		// and copy so we can encrypt it seperately
 		int hLen = roundUpTo16(gcodeLen); 
-		char *hBuf = new char[hLen+1];
+		char *hBuf = new char[hLen+17];
 		if(hBuf)
 		{
 			memcpy(hBuf, gcode, gcodeLen);
